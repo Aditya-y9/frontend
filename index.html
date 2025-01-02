@@ -13,7 +13,314 @@
             defer=""
             src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.min.js"
         ></script>
-        <script defer="" src="./script.js"></script>
+        <script>const API_URL = "http://localhost:8000/ask";
+            async function askQuery({ query, language }) {
+                // Construct the full URL with the query parameter
+                const url = new URL(API_URL);
+                url.searchParams.set("query", query);
+                if (language) url.searchParams.set("language", language);
+            
+                // Print the API call URL to the console
+                console.log("Making API call to:", url.toString());
+            
+                try {
+                    const response = await fetch(url, {
+                        method: "GET", // or "POST" depending on your API
+                        headers: {
+                            "ngrok-skip-browser-warning": "true" // This header bypasses the warning page
+                        }
+                    });
+            
+                    const text = await response.text();
+                    console.log("Response text:", text);
+            
+                    // Check if the response is OK
+                    if (!response.ok) {
+                        throw new Error(`API returned status: ${response.status}`);
+                    }
+            
+                    try {
+                        const data = JSON.parse(text);
+                        return data.response;
+                    } catch (jsonError) {
+                        console.error("Failed to parse response as JSON", jsonError);
+                        return "Error parsing response.";
+                    }
+                } catch (error) {
+                    console.error("Error in askQuery:", error);
+                    return "Error communicating with the server. Please try again.";
+                }
+            }
+            
+            
+            function injectStyles() {
+                const styles = `
+                    .typing .dot { animation: blink 1.5s infinite; }
+                    /* Add your custom styles here */
+                `;
+                const style = document.createElement("style");
+                style.textContent = styles;
+                document.head.append(style);
+            }
+            
+            const userInput = document.querySelector(".text-box");
+            const element = $(".floating-chat");
+            
+            setTimeout(() => element.addClass("enter"), 1000);
+            element.click(openElement);
+            
+            function openElement() {
+                const messages = element.find(".messages");
+                const textInput = element.find(".text-box");
+                element.find(">i").hide();
+                element.addClass("expand");
+                element.find(".chat").addClass("enter");
+                textInput.keydown(onMetaAndEnter).prop("disabled", false).focus();
+                element.off("click", openElement);
+                element.find(".header button").click(closeElement);
+                element.find("#sendMessage").click(sendNewMessage);
+                messages.scrollTop(messages.prop("scrollHeight"));
+            }
+            
+            function closeElement() {
+                element.find(".chat").removeClass("enter").hide();
+                element.find(">i").show();
+                element.removeClass("expand");
+                element.find(".header button").off("click", closeElement);
+                element.find("#sendMessage").off("click", sendNewMessage);
+                element.find(".text-box").off("keydown", onMetaAndEnter).prop("disabled", true).blur();
+                setTimeout(() => {
+                    element.find(".chat").removeClass("enter").show();
+                    element.click(openElement);
+                }, 500);
+            }
+            
+            function createMessage(message, sender) {
+                const messagesContainer = $(".messages");
+                messagesContainer.append(`<li class="${sender}">${message}</li>`);
+                messagesContainer.animate(
+                    { scrollTop: messagesContainer.prop("scrollHeight") },
+                    250
+                );
+            }
+            
+            let languageInputs = null;
+            
+            function getLanguage() {
+                if (!languageInputs) {
+                    languageInputs = document.querySelectorAll(
+                        "input[type=radio][name=language]"
+                    );
+                }
+                for (const input of languageInputs) {
+                    if (input.checked) return input.value;
+                }
+                return "english";
+            }
+            
+            function getLanguageCode(language = getLanguage()) {
+                const languageCodes = {
+                    english: "en-IN",
+                    hindi: "hi-IN",
+                    marathi: "mr-IN",
+                };
+                return languageCodes[language] || "en-IN";
+            }
+            
+            function createTypingAnimation() {
+                return `
+                    <div class="typing">
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                    </div>
+                `;
+            }
+            
+            function getAllVoices() {
+                return new Promise((resolve) => {
+                    let voices = window.speechSynthesis.getVoices();
+                    if (voices.length !== 0) {
+                        resolve(voices);
+                    } else {
+                        window.speechSynthesis.addEventListener("voiceschanged", () => {
+                            voices = window.speechSynthesis.getVoices();
+                            resolve(voices);
+                        });
+                    }
+                });
+            }
+            
+            async function speakText(text, lang) {
+                const voices = await getAllVoices();
+                console.log("All available voices:", voices);
+            
+                // Select the voice based on the language
+                let selectedVoice = voices.find(
+                    (voice) => voice.name === "Microsoft Ravi - English (India)"
+                );
+                if (lang === "hi-IN" || lang === "mr-IN") {
+                    selectedVoice = voices.find((voice) => voice.lang === "hi-IN");
+                }
+            
+                const utterance = new SpeechSynthesisUtterance(text);
+                if (selectedVoice) {
+                    utterance.voice = selectedVoice;
+                    console.log(`Using voice: ${selectedVoice.name} (${selectedVoice.lang})`);
+                } else {
+                    console.error(`No suitable voice found for language: ${lang}`);
+                }
+            
+                utterance.lang = selectedVoice?.lang || lang;
+                speechSynthesis.speak(utterance);
+            }
+            
+            async function translateText(text, sourceLang, targetLang = "en") {
+                const apiKey = "AIzaSyD6Rhen7Z4Grv1ZDWJJASEJsmeVgAcUJv4"
+                const url = `https://translation.googleapis.com/language/translate/v2?key=${apiKey}`;
+            
+                const params = {
+                    q: text,
+                    source: sourceLang,
+                    target: targetLang,
+                    format: "text"
+                };
+            
+                try {
+                    const response = await fetch(url, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify(params),
+                    });
+            
+                    const data = await response.json();
+            
+                    if (data.data && data.data.translations[0].translatedText) {
+                        return data.data.translations[0].translatedText;
+                    } else {
+                        throw new Error("Translation failed.");
+                    }
+                } catch (error) {
+                    console.error("Translation Error:", error);
+                    return text; // Fallback to original text
+                }
+            }
+            
+            
+            async function sendNewMessage() {
+                const newMessage = userInput.value.trim().replace(/\n/g, "<br>");
+                if (!newMessage) return;
+            
+                createMessage(newMessage, "user");
+                userInput.value = "";
+            
+                // Typing animation
+                const typingAnimation = createTypingAnimation();
+                $(".messages").append(`<li class="bot typing-animation">${typingAnimation}</li>`);
+            
+                const language = getLanguage();
+                let translatedMessage = newMessage;
+            
+                if (language !== "english") {
+                    const sourceLangCode = getLanguageCode(language);
+                    translatedMessage = await translateText(newMessage, sourceLangCode, "en");
+                }
+            
+                let response;
+                try {
+                    response = await askQuery({
+                        query: translatedMessage,
+                        language: language,
+                    });
+                } catch (error) {
+                    response = "Error fetching response from the server.";
+                    console.error("API Error:", error);
+                }
+            
+                // Remove typing animation
+                $(".typing-animation").remove();
+            
+                let finalResponse = response;
+                if (language !== "english") {
+                    const targetLangCode = getLanguageCode(language);
+                    finalResponse = await translateText(response, "en", targetLangCode);
+                }
+            
+                createMessage(finalResponse, "bot");
+                speakText(finalResponse, getLanguageCode(language));
+            }
+            
+            function onMetaAndEnter(event) {
+                if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    sendNewMessage();
+                }
+            }
+            
+            userInput.addEventListener("keydown", onMetaAndEnter);
+            
+            const voiceInput = document.querySelector("#voiceInput");
+            let speechRecognition = null;
+            
+            function initializeSpeechRecognition() {
+                try {
+                    const RecognitionConstructor =
+                        window.SpeechRecognition || window.webkitSpeechRecognition;
+                    if (!RecognitionConstructor) {
+                        createMessage("Speech recognition not supported.", "bot");
+                        return null;
+                    }
+            
+                    speechRecognition = new RecognitionConstructor();
+                    speechRecognition.continuous = false;
+                    speechRecognition.interimResults = true;
+            
+                    speechRecognition.onstart = () => {
+                        voiceInput.classList.add("recording");
+                        createMessage("Listening...", "bot");
+                    };
+            
+                    speechRecognition.onend = () => voiceInput.classList.remove("recording");
+            
+                    speechRecognition.onerror = (event) => {
+                        console.error("Speech recognition error:", event.error);
+                        createMessage(`Error: ${event.error}`, "bot");
+                    };
+            
+                    speechRecognition.onresult = (event) => {
+                        const transcript = event.results[0][0].transcript.trim();
+                        if (event.results[0].isFinal) {
+                            userInput.value = transcript;
+                            sendNewMessage();
+                        } else {
+                            userInput.value = transcript;
+                        }
+                    };
+            
+                    return speechRecognition;
+                } catch (error) {
+                    console.error("SpeechRecognition initialization failed:", error);
+                    createMessage("Failed to initialize voice input.", "bot");
+                    return null;
+                }
+            }
+            
+            voiceInput.addEventListener("click", () => {
+                if (!speechRecognition) {
+                    speechRecognition = initializeSpeechRecognition();
+                }
+                if (!speechRecognition) return;
+            
+                if (!voiceInput.classList.contains("recording")) {
+                    speechRecognition.lang = getLanguageCode();
+                    speechRecognition.start();
+                } else {
+                    speechRecognition.stop();
+                }
+            });
+            </script>
     </head>
 
     <body>
